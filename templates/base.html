@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="MoldezAI - Your intelligent AI chatbot powered by Google Gemini">
+    <title>{% block title %}MoldezAI{% endblock %}</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+
+    <!-- Main CSS -->
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Django messages -->
+    {% if messages %}
+    <div class="toast-container" id="toastContainer">
+        {% for message in messages %}
+        <div class="toast toast-{{ message.tags }}">
+            <span>{{ message }}</span>
+            <button class="toast-close" onclick="this.parentElement.remove()">×</button>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% block content %}{% endblock %}
+
+    <!-- Main JS -->
+    <script src="{% static 'js/chat.js' %}"></script>
+    {% block extra_js %}{% endblock %}
+
+    <!-- Auto-dismiss toasts -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(() => {
+                document.querySelectorAll('.toast').forEach(t => t.remove());
+            }, 4000);
+
+            // Initialize Lucide icons
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        });
+    </script>
+</body>
+</html>

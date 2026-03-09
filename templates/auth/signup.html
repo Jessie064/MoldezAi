@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+
+{% block title %}Sign Up — MoldezAI{% endblock %}
+
+{% block content %}
+<div class="auth-wrapper">
+    <!-- Background blobs -->
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+
+    <div class="auth-card">
+        <!-- Logo -->
+        <div class="auth-logo">
+            <div class="logo-icon">
+                <i data-lucide="bot"></i>
+            </div>
+            <h1 class="logo-text">MoldezAI</h1>
+        </div>
+
+        <div class="auth-header">
+            <h2>Create account</h2>
+            <p>Start chatting with AI for free</p>
+        </div>
+
+        <form method="POST" class="auth-form" novalidate>
+            {% csrf_token %}
+
+            <div class="form-group">
+                <label for="id_username">Username</label>
+                <div class="input-wrapper">
+                    <i data-lucide="user" class="input-icon"></i>
+                    {{ form.username }}
+                </div>
+                {% if form.username.errors %}
+                <span class="field-error">{{ form.username.errors|join:", " }}</span>
+                {% endif %}
+            </div>
+
+            <div class="form-group">
+                <label for="id_email">Email</label>
+                <div class="input-wrapper">
+                    <i data-lucide="mail" class="input-icon"></i>
+                    {{ form.email }}
+                </div>
+                {% if form.email.errors %}
+                <span class="field-error">{{ form.email.errors|join:", " }}</span>
+                {% endif %}
+            </div>
+
+            <div class="form-group">
+                <label for="id_password1">Password</label>
+                <div class="input-wrapper">
+                    <i data-lucide="lock" class="input-icon"></i>
+                    {{ form.password1 }}
+                    <button type="button" class="toggle-password" onclick="togglePassword('id_password1', this)"
+                        aria-label="Toggle password visibility">
+                        <i data-lucide="eye"></i>
+                    </button>
+                </div>
+                {% if form.password1.errors %}
+                <span class="field-error">{{ form.password1.errors|join:", " }}</span>
+                {% endif %}
+            </div>
+
+            <div class="form-group">
+                <label for="id_password2">Confirm Password</label>
+                <div class="input-wrapper">
+                    <i data-lucide="shield-check" class="input-icon"></i>
+                    {{ form.password2 }}
+                    <button type="button" class="toggle-password" onclick="togglePassword('id_password2', this)"
+                        aria-label="Toggle password visibility">
+                        <i data-lucide="eye"></i>
+                    </button>
+                </div>
+                {% if form.password2.errors %}
+                <span class="field-error">{{ form.password2.errors|join:", " }}</span>
+                {% endif %}
+            </div>
+
+            <div class="password-hints">
+                <span><i data-lucide="info"></i> At least 8 characters, not too common</span>
+            </div>
+
+            <button type="submit" class="btn-primary btn-full">
+                <i data-lucide="user-plus"></i>
+                Create Account
+            </button>
+        </form>
+
+        <p class="auth-switch">
+            Already have an account?
+            <a href="{% url 'login' %}">Sign in</a>
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    function togglePassword(inputId, btn) {
+        const input = document.getElementById(inputId);
+        const icon = btn.querySelector('[data-lucide]');
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.setAttribute('data-lucide', 'eye-off');
+        } else {
+            input.type = 'password';
+            icon.setAttribute('data-lucide', 'eye');
+        }
+        lucide.createIcons();
+    }
+</script>
+{% endblock %}
