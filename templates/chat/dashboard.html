@@ -1,4 +1,4 @@
-﻿{% extends 'base.html' %}
+{% extends 'base.html' %}
 {% load static %}
 
 {% block title %}MoldezAI{% endblock %}
@@ -6,7 +6,7 @@
 {% block content %}
 <div class="chat-app">
 
-    <!-- â”€â”€ Sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+    <!-- ── Sidebar ──────────────────────────────────────────────── -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <div class="sidebar-logo">
@@ -23,18 +23,28 @@
             <span>New Chat</span>
         </a>
 
-        <div class="sessions-list">
+        <!-- Search box -->
+        <div class="search-box" id="searchBox">
+            <i data-lucide="search" class="search-icon"></i>
+            <input type="text" id="sessionSearch" class="session-search-input" placeholder="Search conversations…" autocomplete="off">
+        </div>
+
+        <div class="sessions-list" id="sessionsList">
             <p class="sessions-label">Recent Conversations</p>
             {% for session in sessions %}
             <a href="{% url 'chat_dashboard' %}?session={{ session.id }}"
                 class="session-item {% if current_session and current_session.id == session.id %}active{% endif %}"
-                id="session-{{ session.id }}">
+                id="session-{{ session.id }}"
+                data-title="{{ session.title|escapejs }}">
                 <i data-lucide="message-square"></i>
                 <div class="session-info">
                     <span class="session-title">{{ session.title|truncatechars:35 }}</span>
                     <span class="session-date">{{ session.updated_at|date:"M d" }}</span>
                 </div>
-                <button class="session-delete" data-session-id="{{ session.id }}" title="Delete conversation">
+                <button class="session-rename" data-session-id="{{ session.id }}" title="Rename conversation" tabindex="-1">
+                    <i data-lucide="pencil"></i>
+                </button>
+                <button class="session-delete" data-session-id="{{ session.id }}" title="Delete conversation" tabindex="-1">
                     <i data-lucide="trash-2"></i>
                 </button>
             </a>
@@ -62,7 +72,7 @@
         </div>
     </aside>
 
-    <!-- â”€â”€ Main Chat Area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+    <!-- ── Main Chat Area ───────────────────────────────────────── -->
     <main class="chat-main">
 
         <!-- Top Bar -->
@@ -81,6 +91,18 @@
                 <span class="chat-subtitle">Powered by Google Gemini</span>
             </div>
             <div class="header-actions">
+                {% if current_session %}
+                <button class="btn-header-action" id="exportBtn"
+                    title="Export chat"
+                    onclick="exportChat({{ current_session.id }})">
+                    <i data-lucide="download"></i>
+                </button>
+                <button class="btn-header-action" id="headerRenameBtn"
+                    title="Rename chat"
+                    onclick="promptRename({{ current_session.id }})">
+                    <i data-lucide="pencil"></i>
+                </button>
+                {% endif %}
                 <div class="status-dot"></div>
                 <span class="status-text">Online</span>
             </div>
@@ -95,7 +117,7 @@
                     <i data-lucide="sparkles"></i>
                 </div>
                 <h2>How can I help you today?</h2>
-                <p>Ask me anything â€” I'm powered by Google Gemini AI</p>
+                <p>Ask me anything — I'm powered by Google Gemini AI</p>
                 <div class="suggestion-chips">
                     <button class="chip" onclick="fillInput('Explain quantum computing simply')">
                         <i data-lucide="atom"></i> Explain quantum computing
@@ -187,6 +209,21 @@
     </main>
 </div>
 
+<!-- ── Rename Modal ─────────────────────────────────────────────── -->
+<div class="modal-overlay" id="renameModal" style="display:none;">
+    <div class="modal-card">
+        <div class="modal-header">
+            <i data-lucide="pencil"></i>
+            <h3>Rename Conversation</h3>
+        </div>
+        <input type="text" id="renameInput" class="modal-input" maxlength="200" placeholder="Enter new name…">
+        <div class="modal-actions">
+            <button class="modal-btn modal-btn-cancel" id="renameCancel">Cancel</button>
+            <button class="modal-btn modal-btn-confirm" id="renameConfirm">Rename</button>
+        </div>
+    </div>
+</div>
+
 <!-- Hidden data for JS -->
 <script>
     const SESSION_ID = {{ current_session.id|default:"null" }};
@@ -194,11 +231,20 @@
     const CSRF_TOKEN = "{{ csrf_token }}";
     const CHAT_URL = "{% url 'chat_dashboard' %}";
     const USERNAME_INITIAL = "{{ request.user.username|slice:':1'|upper }}";
+    const RENAME_URL_TPL = "/chat/rename/__ID__/";
+    const EXPORT_URL_TPL = "/chat/export/__ID__/";
 
-    // Wire up delete buttons
+    // Wire up delete + rename buttons
     document.querySelectorAll('.session-delete').forEach(function (btn) {
         btn.addEventListener('click', function (event) {
             deleteSession(event, btn.dataset.sessionId);
+        });
+    });
+    document.querySelectorAll('.session-rename').forEach(function (btn) {
+        btn.addEventListener('click', function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            promptRename(btn.dataset.sessionId);
         });
     });
 </script>

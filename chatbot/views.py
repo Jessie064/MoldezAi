@@ -1,12 +1,14 @@
 import json
+import time
 import traceback
 import urllib.request
 import urllib.error
+from django.db import IntegrityError
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.views.decorators.http import require_POST
 from django.conf import settings
 
@@ -17,14 +19,24 @@ GEMINI_MODEL = 'gemini-2.5-flash'
 GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
 
 
-def call_gemini_rest(api_key, contents, timeout=25):
-    """Call Gemini REST API directly. contents = list of {role, parts:[{text}]} dicts."""
+def call_gemini_rest(api_key, contents, timeout=25, max_retries=4):
+    """Call Gemini REST API directly. contents = list of {role, parts:[{text}]} dicts.
+    Retries automatically on 429/503 errors with exponential backoff."""
     url = f'{GEMINI_API_BASE}/{GEMINI_MODEL}:generateContent?key={api_key}'
     body = json.dumps({'contents': contents}).encode()
-    req = urllib.request.Request(url, data=body, headers={'Content-Type': 'application/json'})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        data = json.loads(r.read())
-    return data['candidates'][0]['content']['parts'][0]['text']
+    for attempt in range(max_retries):
+        req = urllib.request.Request(url, data=body, headers={'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                data = json.loads(r.read())
+            return data['candidates'][0]['content']['parts'][0]['text']
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 503) and attempt < max_retries - 1:
+                wait = 2 ** attempt  # 1s, 2s, 4s, 8s
+                print(f'[GEMINI] Error {e.code}, retrying in {wait}s (attempt {attempt + 1}/{max_retries})')
+                time.sleep(wait)
+            else:
+                raise
 
 
 # ─────────────────────────────────────────────────────────────
@@ -37,7 +49,12 @@ def signup_view(request):
     if request.method == 'POST':
         form = SignUpForm(request.POST)
         if form.is_valid():
-            user = form.save()
+            try:
+                user = form.save()
+            except IntegrityError:
+                form.add_error('username', 'This username is already taken.')
+                messages.error(request, 'Please correct the errors below.')
+                return render(request, 'auth/signup.html', {'form': form})
             login(request, user)
             messages.success(request, f'Welcome, {user.username}! Your account has been created.')
             return redirect('chat_dashboard')
@@ -106,6 +123,45 @@ def delete_session(request, session_id):
     session = get_object_or_404(ChatSession, id=session_id, user=request.user)
     session.delete()
     return JsonResponse({'success': True})
+
+
+@login_required
+@require_POST
+def rename_session(request, session_id):
+    """Rename a chat session title via AJAX POST."""
+    session = get_object_or_404(ChatSession, id=session_id, user=request.user)
+    try:
+        data = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({'error': 'Invalid JSON.'}, status=400)
+    new_title = data.get('title', '').strip()
+    if not new_title:
+        return JsonResponse({'error': 'Title cannot be empty.'}, status=400)
+    session.title = new_title[:200]
+    session.save(update_fields=['title'])
+    return JsonResponse({'success': True, 'title': session.title})
+
+
+@login_required
+def export_chat(request, session_id):
+    """Export a chat session as a plain-text file download."""
+    session = get_object_or_404(ChatSession, id=session_id, user=request.user)
+    msgs = session.messages.order_by('created_at')
+    lines = [f'MoldezAI — Conversation Export', f'Title: {session.title}',
+             f'Date: {session.created_at.strftime("%Y-%m-%d %H:%M")}',
+             '=' * 60, '']
+    for msg in msgs:
+        role_label = 'You' if msg.role == 'user' else 'MoldezAI'
+        time_str = msg.created_at.strftime('%H:%M')
+        lines.append(f'[{time_str}] {role_label}:')
+        lines.append(msg.content)
+        lines.append('')
+    content = '\n'.join(lines)
+    safe_title = ''.join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in session.title)[:60]
+    filename = f'MoldezAI_{safe_title}.txt'
+    response = HttpResponse(content, content_type='text/plain; charset=utf-8')
+    response['Content-Disposition'] = f'attachment; filename="{filename}"'
+    return response
 
 
 # ─────────────────────────────────────────────────────────────
@@ -189,8 +245,10 @@ def send_message(request):
                 print(f'\n[GEMINI HTTP ERROR] {gemini_err.code}: {err_body}')
                 if gemini_err.code == 429:
                     ai_response = '⏱️ Rate limited — please wait a moment and try again.'
+                elif gemini_err.code == 503:
+                    ai_response = '⏱️ The AI model is temporarily busy. Please try again in a few seconds.'
                 else:
-                    ai_response = f'⚠️ AI Error ({gemini_err.code}): {err_body}'
+                    ai_response = f'⚠️ Something went wrong (Error {gemini_err.code}). Please try again.'
 
             except Exception as gemini_err:
                 print(f'\n[GEMINI ERROR] {type(gemini_err).__name__}: {gemini_err}')

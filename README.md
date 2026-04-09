@@ -12,8 +12,13 @@ A full-featured AI chatbot web application built with **Django** (backend) and *
 
 - 🔐 **User Authentication** — Sign up, log in, log out with secure password hashing
 - 💬 **AI Chat** — Real-time conversation powered by Google Gemini 2.5 Flash
+- ⌨️ **Typing Effect** — AI responses appear character-by-character for a natural feel
 - 📜 **Chat History** — All conversations saved and browsable in the sidebar
+- 🔍 **Conversation Search** — Filter sidebar sessions by title in real time
 - 🗂️ **Multiple Sessions** — Create and switch between chat sessions
+- ✏️ **Rename Sessions** — Rename any conversation via a sleek modal dialog
+- 📥 **Export Chat** — Download any conversation as a plain-text `.txt` file
+- 🔄 **Auto-Retry** — API calls automatically retry on 429/503 errors with exponential backoff
 - 🌙 **Dark Mode UI** — Premium glassmorphism design with animated bubbles
 - 📱 **Responsive** — Works on mobile, tablet, and desktop
 - ⚡ **No Page Reloads** — Async messages via JavaScript Fetch API
@@ -156,6 +161,8 @@ http://127.0.0.1:8000
 | `/chat/new/` | Start a new chat session |
 | `/chat/send/` | API endpoint (POST JSON) |
 | `/chat/delete/<id>/` | Delete a chat session |
+| `/chat/rename/<id>/` | Rename a chat session (POST JSON) |
+| `/chat/export/<id>/` | Export a chat session as `.txt` download |
 | `/chat/test/` | Diagnostic — checks if API key works |
 | `/admin/` | Django admin panel |
 
@@ -166,9 +173,9 @@ http://127.0.0.1:8000
 1. User sends a message via the chat input
 2. JavaScript `fetch()` POSTs to `/chat/send/` asynchronously
 3. Django backend receives the message, builds full conversation history
-4. Backend calls **Google Gemini 2.5 Flash** via direct REST API (no SDK)
+4. Backend calls **Google Gemini 2.5 Flash** via direct REST API (no SDK), with automatic retry on 429/503
 5. AI response is saved to the database and returned as JSON
-6. Frontend displays the response in a chat bubble — no page reload
+6. Frontend displays the response with a character-by-character typing effect — no page reload
 
 ---
 
