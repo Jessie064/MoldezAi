@@ -66,6 +66,9 @@
                     <span class="user-email">{{ request.user.email|default:"" }}</span>
                 </div>
             </div>
+            <button class="btn-theme-toggle" id="themeToggle" title="Toggle light/dark mode">
+                <i data-lucide="sun"></i>
+            </button>
             <a href="{% url 'logout' %}" class="btn-logout" title="Logout">
                 <i data-lucide="log-out"></i>
             </a>
@@ -88,7 +91,7 @@
                     MoldezAI Chat
                     {% endif %}
                 </h1>
-                <span class="chat-subtitle">Powered by Google Gemini</span>
+                <span class="chat-subtitle">Powered by Groq AI</span>
             </div>
             <div class="header-actions">
                 {% if current_session %}
@@ -233,6 +236,8 @@
     const USERNAME_INITIAL = "{{ request.user.username|slice:':1'|upper }}";
     const RENAME_URL_TPL = "/chat/rename/__ID__/";
     const EXPORT_URL_TPL = "/chat/export/__ID__/";
+    const RETRY_URL = "{% url 'retry_pending' %}";
+    const PENDING_RESPONSE = {{ pending_response|yesno:"true,false" }};
 
     // Wire up delete + rename buttons
     document.querySelectorAll('.session-delete').forEach(function (btn) {

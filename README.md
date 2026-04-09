@@ -1,9 +1,9 @@
 # 🤖 MoldezAI — Django AI Chatbot
 
-A full-featured AI chatbot web application built with **Django** (backend) and **HTML/CSS/JavaScript** (frontend), powered by **Google Gemini AI**.
+A full-featured AI chatbot web application built with **Django** (backend) and **HTML/CSS/JavaScript** (frontend), powered by **Groq AI** (Llama 3.3 70B).
 
 ![Tech Stack](https://img.shields.io/badge/Django-5.2-green?logo=django)
-![AI](https://img.shields.io/badge/AI-Google%20Gemini%202.5%20Flash-blue?logo=google)
+![AI](https://img.shields.io/badge/AI-Groq%20Llama%203.3%2070B-blue?logo=meta)
 ![Python](https://img.shields.io/badge/Python-3.10+-yellow?logo=python)
 
 ---
@@ -11,7 +11,7 @@ A full-featured AI chatbot web application built with **Django** (backend) and *
 ## ✨ Features
 
 - 🔐 **User Authentication** — Sign up, log in, log out with secure password hashing
-- 💬 **AI Chat** — Real-time conversation powered by Google Gemini 2.5 Flash
+- 💬 **AI Chat** — Real-time conversation powered by Groq AI (Llama 3.3 70B)
 - ⌨️ **Typing Effect** — AI responses appear character-by-character for a natural feel
 - 📜 **Chat History** — All conversations saved and browsable in the sidebar
 - 🔍 **Conversation Search** — Filter sidebar sessions by title in real time
@@ -42,7 +42,7 @@ moldez/
 │
 ├── chatbot/              ← Main app
 │   ├── models.py         ← ChatSession, ChatMessage
-│   ├── views.py          ← Auth + Chat API views (uses Gemini REST API)
+│   ├── views.py          ← Auth + Chat API views (uses Groq REST API)
 │   ├── forms.py          ← SignUp, Login forms
 │   ├── admin.py          ← Admin panel config
 │   ├── migrations/
@@ -109,12 +109,12 @@ cp .env.example .env      # macOS/Linux
 Then open `.env` and fill in your values:
 
 ```env
-GEMINI_API_KEY=your_actual_gemini_key_here
+GROQ_API_KEY=your_actual_groq_key_here
 SECRET_KEY=your_django_secret_key_here
 DEBUG=True
 ```
 
-> **Get your free Gemini API key:** https://aistudio.google.com/apikey  
+> **Get your free Groq API key:** https://console.groq.com  
 > **Generate a Django secret key:** https://djecrety.ir/
 
 ### 6. Run database migrations
@@ -173,7 +173,7 @@ http://127.0.0.1:8000
 1. User sends a message via the chat input
 2. JavaScript `fetch()` POSTs to `/chat/send/` asynchronously
 3. Django backend receives the message, builds full conversation history
-4. Backend calls **Google Gemini 2.5 Flash** via direct REST API (no SDK), with automatic retry on 429/503
+4. Backend calls **Groq AI (Llama 3.3 70B)** via direct REST API (no SDK), with automatic retry on 429/503
 5. AI response is saved to the database and returned as JSON
 6. Frontend displays the response with a character-by-character typing effect — no page reload
 
@@ -192,11 +192,11 @@ http://127.0.0.1:8000
 ## 📝 Notes
 
 - The project uses **SQLite** by default (no extra DB setup needed)
-- Gemini API is called via **direct REST** (not the google-genai SDK) for better free-tier compatibility
-- Model used: `gemini-2.5-flash` via `https://generativelanguage.googleapis.com/v1beta`
-- If `GEMINI_API_KEY` is not set, the chatbot will show a configuration warning
+- Groq API is called via **direct REST** (OpenAI-compatible format) for lightweight implementation
+- Primary model: `llama-3.3-70b-versatile` with `llama-3.1-8b-instant` as fallback
+- If `GROQ_API_KEY` is not set, the chatbot will show a configuration warning
 - Visit `/chat/test/` to verify your API key is working correctly
-- If you get a 429 quota error, create a new API key at a fresh Google AI Studio project
+- If you get a 429 rate limit error, wait a moment or upgrade your Groq plan
 
 ---
 
@@ -205,6 +205,6 @@ http://127.0.0.1:8000
 | Problem | Fix |
 |---------|-----|
 | "Chat URL not configured" error | Hard refresh the page (Ctrl+F5) |
-| 429 RESOURCE_EXHAUSTED | Create a new Gemini API key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
+| 429 Rate limited | Wait a moment — Groq free tier has rate limits (30 req/min) |
 | AI not responding | Visit `/chat/test/` to diagnose the API key |
 | Admin login fails | Run `python manage.py createsuperuser` |

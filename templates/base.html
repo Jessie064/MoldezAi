@@ -19,6 +19,14 @@
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
 
     {% block extra_css %}{% endblock %}
+
+    <!-- Apply saved theme before paint to prevent flash -->
+    <script>
+        (function() {
+            var t = localStorage.getItem('moldez-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', t);
+        })();
+    </script>
 </head>
 <body>
     <!-- Django messages -->

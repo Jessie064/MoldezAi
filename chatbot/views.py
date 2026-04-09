@@ -15,28 +15,56 @@ from django.conf import settings
 from .forms import SignUpForm, LoginForm
 from .models import ChatSession, ChatMessage
 
-GEMINI_MODEL = 'gemini-2.5-flash'
-GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
+GROQ_MODELS = ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant']
+GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'
+SYSTEM_INSTRUCTION = (
+    "You are MoldezAI, a helpful assistant. "
+    "Give short, direct answers. Get straight to the point. "
+    "Only elaborate when the user explicitly asks for more detail."
+)
 
 
-def call_gemini_rest(api_key, contents, timeout=25, max_retries=4):
-    """Call Gemini REST API directly. contents = list of {role, parts:[{text}]} dicts.
-    Retries automatically on 429/503 errors with exponential backoff."""
-    url = f'{GEMINI_API_BASE}/{GEMINI_MODEL}:generateContent?key={api_key}'
-    body = json.dumps({'contents': contents}).encode()
-    for attempt in range(max_retries):
-        req = urllib.request.Request(url, data=body, headers={'Content-Type': 'application/json'})
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                data = json.loads(r.read())
-            return data['candidates'][0]['content']['parts'][0]['text']
-        except urllib.error.HTTPError as e:
-            if e.code in (429, 503) and attempt < max_retries - 1:
-                wait = 2 ** attempt  # 1s, 2s, 4s, 8s
-                print(f'[GEMINI] Error {e.code}, retrying in {wait}s (attempt {attempt + 1}/{max_retries})')
-                time.sleep(wait)
-            else:
-                raise
+def _call_single_model(api_key, model, messages, timeout=30):
+    """Call a single Groq model. Raises on failure."""
+    body = json.dumps({
+        'model': model,
+        'messages': messages,
+        'max_tokens': 300,
+        'temperature': 0.7,
+    }).encode()
+    req = urllib.request.Request(GROQ_API_URL, data=body, headers={
+        'Content-Type': 'application/json',
+        'Authorization': f'Bearer {api_key}',
+        'User-Agent': 'MoldezAI/1.0',
+    })
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        data = json.loads(r.read())
+    return data['choices'][0]['message']['content']
+
+
+def call_groq_rest(api_key, messages):
+    """Try each model in order. For each model, retry once on 429/503 after a short wait.
+    Falls through to the next model quickly instead of waiting forever."""
+    last_err = None
+    for model in GROQ_MODELS:
+        for attempt in range(2):  # max 2 tries per model
+            try:
+                print(f'[GROQ] Trying {model} (attempt {attempt + 1})')
+                return _call_single_model(api_key, model, messages)
+            except urllib.error.HTTPError as e:
+                last_err = e
+                if e.code in (429, 503) and attempt == 0:
+                    print(f'[GROQ] {model} returned {e.code}, retrying in 2s...')
+                    time.sleep(2)
+                else:
+                    print(f'[GROQ] {model} failed with {e.code}, trying next model...')
+                    break
+            except Exception as e:
+                last_err = e
+                print(f'[GROQ] {model} error: {e}, trying next model...')
+                break
+    # All models failed — raise the last error
+    raise last_err
 
 
 # ─────────────────────────────────────────────────────────────
@@ -104,10 +132,17 @@ def chat_dashboard(request):
     else:
         session = None
     chat_messages = session.messages.all() if session else []
+    # Check if the last message is from the user (AI never responded)
+    pending_response = False
+    if session:
+        last_msg = session.messages.order_by('-created_at').first()
+        if last_msg and last_msg.role == 'user':
+            pending_response = True
     context = {
         'sessions': sessions,
         'current_session': session,
         'chat_messages': chat_messages,
+        'pending_response': pending_response,
     }
     return render(request, 'chat/dashboard.html', context)
 
@@ -169,13 +204,62 @@ def export_chat(request, session_id):
 # ─────────────────────────────────────────────────────────────
 
 @login_required
-def test_api(request):
-    api_key = settings.GEMINI_API_KEY
-    if not api_key or api_key.startswith('your_'):
-        return JsonResponse({'status': 'error', 'message': 'GEMINI_API_KEY not set in .env'})
+@require_POST
+def retry_pending(request):
+    """If the last message in a session is from the user (AI never responded),
+    call Groq and return the AI response."""
     try:
-        text = call_gemini_rest(api_key, [{'role': 'user', 'parts': [{'text': 'Say "API OK" and nothing else.'}]}])
-        return JsonResponse({'status': 'ok', 'response': text, 'model': GEMINI_MODEL})
+        data = json.loads(request.body)
+        session_id = data.get('session_id')
+        if not session_id:
+            return JsonResponse({'error': 'No session_id.'}, status=400)
+
+        session = get_object_or_404(ChatSession, id=session_id, user=request.user)
+        last_msg = session.messages.order_by('-created_at').first()
+        if not last_msg or last_msg.role != 'user':
+            return JsonResponse({'error': 'No pending message.'}, status=400)
+
+        api_key = settings.GROQ_API_KEY
+        if not api_key or api_key.startswith('your_'):
+            ai_response = "⚠️ Groq API key not configured."
+        else:
+            try:
+                messages = [{'role': 'system', 'content': SYSTEM_INSTRUCTION}]
+                for msg in session.messages.order_by('created_at'):
+                    role = 'user' if msg.role == 'user' else 'assistant'
+                    messages.append({'role': role, 'content': msg.content})
+                ai_response = call_groq_rest(api_key, messages)
+            except urllib.error.HTTPError as e:
+                if e.code == 429:
+                    ai_response = '⏱️ Rate limited — please wait a moment and try again.'
+                elif e.code == 503:
+                    ai_response = '⏱️ The AI model is temporarily busy. Please try again in a few seconds.'
+                else:
+                    ai_response = f'⚠️ Something went wrong (Error {e.code}). Please try again.'
+            except Exception as e:
+                ai_response = f'⚠️ AI Error: {e}'
+
+        ai_msg = ChatMessage.objects.create(session=session, role='ai', content=ai_response)
+        return JsonResponse({
+            'success': True,
+            'ai_response': ai_response,
+            'timestamp': ai_msg.created_at.strftime('%I:%M %p'),
+        })
+    except Exception as err:
+        return JsonResponse({'error': f'Server error: {err}'}, status=500)
+
+
+@login_required
+def test_api(request):
+    api_key = settings.GROQ_API_KEY
+    if not api_key or api_key.startswith('your_'):
+        return JsonResponse({'status': 'error', 'message': 'GROQ_API_KEY not set in .env'})
+    try:
+        text = call_groq_rest(api_key, [
+            {'role': 'system', 'content': SYSTEM_INSTRUCTION},
+            {'role': 'user', 'content': 'Say "API OK" and nothing else.'},
+        ])
+        return JsonResponse({'status': 'ok', 'response': text, 'models': GROQ_MODELS})
     except Exception as e:
         return JsonResponse({
             'status': 'error',
@@ -223,37 +307,37 @@ def send_message(request):
             session.title = user_message[:50] + ('...' if len(user_message) > 50 else '')
             session.save()
 
-        # ── Gemini API ───────────────────────────────────────────────
-        api_key = settings.GEMINI_API_KEY
+        # ── Groq API ─────────────────────────────────────────────────
+        api_key = settings.GROQ_API_KEY
         if not api_key or api_key.startswith('your_'):
             ai_response = (
-                "⚠️ Gemini API key not configured. "
-                "Add your GEMINI_API_KEY to the .env file and restart the server."
+                "⚠️ Groq API key not configured. "
+                "Add your GROQ_API_KEY to the .env file and restart the server."
             )
         else:
             try:
-                # Build conversation history for REST API
-                contents = []
+                # Build conversation history for Groq (OpenAI format)
+                groq_messages = [{'role': 'system', 'content': SYSTEM_INSTRUCTION}]
                 for msg in session.messages.order_by('created_at'):
-                    role = 'user' if msg.role == 'user' else 'model'
-                    contents.append({'role': role, 'parts': [{'text': msg.content}]})
+                    role = 'user' if msg.role == 'user' else 'assistant'
+                    groq_messages.append({'role': role, 'content': msg.content})
 
-                ai_response = call_gemini_rest(api_key, contents, timeout=25)
+                ai_response = call_groq_rest(api_key, groq_messages)
 
-            except urllib.error.HTTPError as gemini_err:
-                err_body = gemini_err.read().decode()[:300]
-                print(f'\n[GEMINI HTTP ERROR] {gemini_err.code}: {err_body}')
-                if gemini_err.code == 429:
+            except urllib.error.HTTPError as groq_err:
+                err_body = groq_err.read().decode()[:300]
+                print(f'\n[GROQ HTTP ERROR] {groq_err.code}: {err_body}')
+                if groq_err.code == 429:
                     ai_response = '⏱️ Rate limited — please wait a moment and try again.'
-                elif gemini_err.code == 503:
+                elif groq_err.code == 503:
                     ai_response = '⏱️ The AI model is temporarily busy. Please try again in a few seconds.'
                 else:
-                    ai_response = f'⚠️ Something went wrong (Error {gemini_err.code}). Please try again.'
+                    ai_response = f'⚠️ Something went wrong (Error {groq_err.code}). Please try again.'
 
-            except Exception as gemini_err:
-                print(f'\n[GEMINI ERROR] {type(gemini_err).__name__}: {gemini_err}')
+            except Exception as groq_err:
+                print(f'\n[GROQ ERROR] {type(groq_err).__name__}: {groq_err}')
                 print(traceback.format_exc())
-                ai_response = f'⚠️ AI Error: {gemini_err}'
+                ai_response = f'⚠️ AI Error: {groq_err}'
         # ─────────────────────────────────────────────────────────────
 
         # Save AI response

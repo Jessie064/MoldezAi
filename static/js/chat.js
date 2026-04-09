@@ -34,6 +34,31 @@
     const renameConfirm     = document.getElementById('renameConfirm');
     const renameCancel      = document.getElementById('renameCancel');
 
+    // ── Theme toggle ──────────────────────────────
+    const themeToggle = document.getElementById('themeToggle');
+
+    function applyTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        localStorage.setItem('moldez-theme', theme);
+        // Update icon
+        const icon = themeToggle ? themeToggle.querySelector('[data-lucide]') : null;
+        if (icon) {
+            icon.setAttribute('data-lucide', theme === 'light' ? 'moon' : 'sun');
+            lucide.createIcons({ nodes: [icon] });
+        }
+    }
+
+    // Load saved theme
+    const savedTheme = localStorage.getItem('moldez-theme') || 'dark';
+    applyTheme(savedTheme);
+
+    if (themeToggle) {
+        themeToggle.addEventListener('click', () => {
+            const current = document.documentElement.getAttribute('data-theme') || 'dark';
+            applyTheme(current === 'dark' ? 'light' : 'dark');
+        });
+    }
+
     // ── Sidebar overlay (mobile) ───────────────────
     let overlay = null;
     function createOverlay() {
@@ -295,7 +320,7 @@
 
         try {
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 28000);
+            const timeoutId = setTimeout(() => controller.abort(), 60000);
 
             if (!_SEND_URL) { showError('Chat URL not configured. Please refresh.'); return; }
 
@@ -369,7 +394,7 @@
             hideTyping();
             console.error('[MoldezAI ERROR]', err.name, err.message, err);
             if (err.name === 'AbortError') {
-                showError('⏱️ Rate limited — please wait a moment and try again.');
+                showError('⏱️ Request timed out — please try again.');
             } else {
                 showError(`Error (${err.name}): ${err.message}`);
             }
@@ -539,12 +564,44 @@
         });
     }
 
+    // ── Auto-retry pending AI response ──────────────
+    async function retryPending() {
+        const _RETRY_URL = typeof RETRY_URL !== 'undefined' ? RETRY_URL : '';
+        const _PENDING   = typeof PENDING_RESPONSE !== 'undefined' ? PENDING_RESPONSE : false;
+        if (!_PENDING || !_RETRY_URL || !currentSessionId) return;
+
+        showTyping();
+        try {
+            const response = await fetch(_RETRY_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': _CSRF_TOKEN,
+                },
+                body: JSON.stringify({ session_id: currentSessionId }),
+            });
+            const data = await response.json();
+            hideTyping();
+            if (data.success) {
+                const aiBubble = createBubble('ai', data.ai_response, data.timestamp, true);
+                messagesContainer.appendChild(aiBubble);
+                scrollToBottom();
+                const bubbleContent = aiBubble.querySelector('.bubble-content');
+                typeText(bubbleContent, data.ai_response, null);
+            }
+        } catch (err) {
+            hideTyping();
+            showError('Failed to get AI response. Please send your message again.');
+        }
+    }
+
     // ── Init ───────────────────────────────────────
     document.addEventListener('DOMContentLoaded', () => {
         if (messagesContainer) scrollToBottom(false);
         if (messageInput) messageInput.focus();
         if (typeof lucide !== 'undefined') lucide.createIcons();
         updateSendButton();
+        retryPending();
     });
 
 })();
